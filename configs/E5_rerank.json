@@ -1,0 +1,12 @@
+{
+  "name": "E5_rerank",
+  "chunker": "recursive",
+  "chunk_size": 1000,
+  "overlap": 150,
+  "retriever": "hybrid",
+  "rrf_k": 60,
+  "rerank": true,
+  "rerank_pool": 12,
+  "top_k": 10,
+  "rerank_batch": 6
+}

@@ -1,0 +1,8 @@
+{
+  "name": "E3_bm25",
+  "chunker": "recursive",
+  "chunk_size": 1000,
+  "overlap": 150,
+  "retriever": "bm25",
+  "top_k": 10
+}

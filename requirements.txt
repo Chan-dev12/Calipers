@@ -1,0 +1,11 @@
+# Two dependencies. That is the whole list.
+numpy>=1.24      # array math. Not a RAG library.
+requests>=2.31   # HTTP to localhost:11434 (Ollama)
+
+# Deliberately NOT used:
+#   langchain / llamaindex  -> the orchestration is the project
+#   chromadb / faiss        -> numpy brute force is exact and fast at this scale
+#   sentence-transformers   -> re-ranking is done by the local LLM instead
+#   rank_bm25               -> BM25 is written out in src/bm25.py
+#   ragas / deepeval        -> the evaluation IS the project
+#   pyyaml / tabulate       -> json + str.format from stdlib

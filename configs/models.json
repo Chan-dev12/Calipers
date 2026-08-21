@@ -1,0 +1,6 @@
+{
+  "embed_model": "nomic-embed-text",
+  "gen_model": "gemma4:e2b",
+  "judge_model": "gemma4:e4b",
+  "_note": "MX550 2GB VRAM: embeddings fit on GPU, generation runs on CPU."
+}

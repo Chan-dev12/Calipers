@@ -1,0 +1,8 @@
+{
+  "name": "E1_recursive",
+  "chunker": "recursive",
+  "chunk_size": 1000,
+  "overlap": 150,
+  "retriever": "dense",
+  "top_k": 10
+}

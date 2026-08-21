@@ -1,0 +1,8 @@
+{
+  "name": "E0_baseline",
+  "chunker": "fixed",
+  "chunk_size": 1000,
+  "overlap": 150,
+  "retriever": "dense",
+  "top_k": 10
+}

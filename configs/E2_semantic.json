@@ -1,0 +1,7 @@
+{
+  "name": "E2_semantic",
+  "chunker": "semantic",
+  "percentile": 90,
+  "retriever": "dense",
+  "top_k": 10
+}

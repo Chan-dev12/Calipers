@@ -1,0 +1,9 @@
+{
+  "name": "E4_hybrid",
+  "chunker": "recursive",
+  "chunk_size": 1000,
+  "overlap": 150,
+  "retriever": "hybrid",
+  "rrf_k": 60,
+  "top_k": 10
+}

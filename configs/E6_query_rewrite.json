@@ -1,0 +1,14 @@
+{
+  "name": "E6_query_rewrite",
+  "chunker": "recursive",
+  "chunk_size": 1000,
+  "overlap": 150,
+  "retriever": "hybrid",
+  "rrf_k": 60,
+  "rerank": true,
+  "rerank_pool": 12,
+  "query_rewrite": "expand",
+  "rewrite_n": 2,
+  "top_k": 10,
+  "rerank_batch": 6
+}
