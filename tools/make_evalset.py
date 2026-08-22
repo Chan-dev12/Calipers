@@ -45,16 +45,35 @@ CORPUS_DIR = os.path.join(ROOT, "corpus")
 CANDIDATES = os.path.join(ROOT, "evalset", "candidates.jsonl")
 QUESTIONS = os.path.join(ROOT, "evalset", "questions.jsonl")
 
-DRAFT_PROMPT = """You are helping build an evaluation set for a retrieval system.
+DRAFT_PROMPT = """You are building an evaluation set for a code retrieval system.
 
-Below is an excerpt from a document. Write ONE specific question that:
-- can be answered using ONLY this excerpt
-- a real user of these documents might plausibly ask
-- is NOT answerable from general knowledge without the excerpt
-- avoids phrases like "according to the text" or "in this passage"
+Below is an excerpt from the file: {doc_id}
 
-Also give the shortest verbatim span from the excerpt that proves the answer.
-The quote MUST be copied character-for-character from the excerpt.
+Write ONE question a developer might ask about this code.
+
+HARD RULES -- breaking any of these makes the question useless for evaluation:
+
+1. NAME THE EXACT TARGET. Write "StringUtils.substringBefore" or the constant
+   "IS_OS_MAC_OSX_CHEETAH". NEVER write "the method", "this class", "the
+   function" or "this file" -- those match dozens of places in the codebase.
+
+2. IF THE METHOD IS OVERLOADED, give the parameter type. "ArrayUtils.contains"
+   exists for Object[], int[], long[] and more, all with identical Javadoc.
+   Write "ArrayUtils.contains(int[], int)" instead.
+
+3. DO NOT REUSE THE EXCERPT'S WORDING. Ask it the way a developer would type it
+   into a search box. If the excerpt says "returns false if a null array is
+   passed in", do NOT ask "what is returned if a null array is passed in".
+
+4. NO JAVADOC MARKUP anywhere. No {{@link}}, no {{@code}}, no <p>, no @return.
+   Plain prose only.
+
+5. IT MUST REQUIRE THIS CODE. If general Java knowledge answers it ("what does
+   isEmpty do"), it tests memorisation, not retrieval. Prefer specific return
+   values, edge cases, exception conditions, version notes, constant values.
+
+The "quote" field must be copied character-for-character from the excerpt and
+must actually prove the answer.
 
 EXCERPT:
 ---
@@ -110,11 +129,19 @@ def cmd_draft(args):
             break
 
     os.makedirs(os.path.dirname(CANDIDATES), exist_ok=True)
+
+    # Batch-stamped IDs. An earlier version numbered every batch q000, q001...
+    # so a second batch collided with the first, and `review` -- which skips
+    # any qid it has already approved -- silently dropped the new questions.
+    # Nothing errored; the batch just disappeared.
+    import datetime
+    batch = datetime.datetime.now().strftime("b%m%d%H%M")
+
     written, rejected = 0, 0
     with open(CANDIDATES, "w", encoding="utf-8") as out:
         for i, c in enumerate(picked, 1):
             print(f"  [{i}/{len(picked)}] {c.doc_id}", flush=True)
-            r = llm.generate_json(DRAFT_PROMPT.format(chunk=c.text[:2500]))
+            r = llm.generate_json(DRAFT_PROMPT.format(chunk=c.text[:2500], doc_id=c.doc_id))
             if not r.get("question") or not r.get("quote"):
                 rejected += 1
                 continue
@@ -123,7 +150,7 @@ def cmd_draft(args):
                 rejected += 1
                 continue
             out.write(json.dumps({
-                "qid": f"q{written:03d}",
+                "qid": f"{batch}_{written:03d}",
                 "question": r["question"].strip(),
                 "answer": r.get("answer", "").strip(),
                 "doc_id": c.doc_id,

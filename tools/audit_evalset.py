@@ -48,8 +48,27 @@ ROOT = os.path.join(os.path.dirname(__file__), "..")
 QUESTIONS = os.path.join(ROOT, "evalset", "questions.jsonl")
 
 MARKUP = re.compile(r"\{@\w+|</?\w+>|@return|@param|@throws")
-# a CamelCase identifier or an explicit method call is what makes a question specific
-SPECIFIC = re.compile(r"\b[A-Z][a-z]+[A-Z]\w*|\w+\(\)|\b[a-z]+[A-Z]\w*\b")
+
+# What makes a question specific enough to have ONE right answer chunk.
+# The first version of this only matched CamelCase and method(), which threw
+# false positives on constants (IS_OS_MAC_OSX_CHEETAH), dotted references
+# (Boolean.TRUE) and backticked names (`fill`). All of those are specific.
+SPECIFIC = re.compile(
+    r"\b[A-Z][a-z]+[A-Z]\w*"          # StringUtils, ArrayFill
+    r"|\b[A-Z][A-Z0-9]+(?:_[A-Z0-9]+)+\b"   # IS_OS_MAC_OSX_CHEETAH, JAVA_RECENT
+    r"|\b[A-Z][A-Za-z0-9]*\.[A-Za-z_]\w*"   # Boolean.TRUE, SystemUtils.IS_OS
+    r"|\w+\(\)"                        # secure(), toString()
+    r"|`\w+`"                          # `fill`
+    r"|\b[a-z]+[A-Z]\w*\b"             # substringBefore, indexOf
+)
+
+# Method names that are heavily overloaded in utility code: naming one of these
+# without a parameter type is still ambiguous, because the same Javadoc is
+# duplicated across every primitive variant.
+OVERLOADED = re.compile(
+    r"\b(contains|indexOf|lastIndexOf|toString|isEmpty|isNotEmpty|add|remove|"
+    r"toArray|clone|equals|hashCode|toObject|toPrimitive|fill|reverse|"
+    r"defaultIfNull|getLength|subarray)\b", re.I)
 
 
 def norm(s: str) -> str:
@@ -84,9 +103,23 @@ def audit(questions):
         if overlap(ques, quote) > 0.6:
             issues.append(("CRITICAL", "question reuses evidence wording"))
 
-        # ambiguity: no specific identifier named
+        # ambiguity: no specific identifier named at all
         if not SPECIFIC.search(ques):
-            issues.append(("CRITICAL", "no method/class named -- ambiguous target"))
+            issues.append(("CRITICAL", "no method/class/constant named -- ambiguous target"))
+        # ambiguity: names an overloaded method with no parameter type.
+        # ArrayUtils.contains exists for Object[], int[], long[], double[]...
+        # each carrying identical Javadoc, so several chunks are equally correct
+        # while only one is recorded as gold.
+        elif OVERLOADED.search(ques) and not re.search(r"\(.+\)|\bint\b|\blong\b|"
+                                                       r"\bdouble\b|\bObject\b|\bchar\b|"
+                                                       r"\bboolean\b|\bbyte\b|\bfloat\b", ques):
+            issues.append(("CRITICAL", "overloaded method without parameter type -- "
+                                       "several chunks would be equally correct"))
+
+        # vague framing: refers to "the method"/"this file" instead of naming it
+        if re.search(r"\bthe (method|function|class|file|object)\b|\bthis (file|class)\b",
+                     ques, re.I):
+            issues.append(("WARN", "refers to 'the method/this file' rather than naming it"))
 
         # markup artifacts
         if MARKUP.search(ques):
