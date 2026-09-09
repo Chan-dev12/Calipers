@@ -69,8 +69,18 @@ HARD RULES -- breaking any of these makes the question useless for evaluation:
    Plain prose only.
 
 5. IT MUST REQUIRE THIS CODE. If general Java knowledge answers it ("what does
-   isEmpty do"), it tests memorisation, not retrieval. Prefer specific return
-   values, edge cases, exception conditions, version notes, constant values.
+   isEmpty do", "what does super() do"), it tests memorisation, not retrieval.
+   Prefer specific return values, edge cases, exception conditions, version
+   notes, constant values.
+
+6. THE QUOTE MUST EXPLAIN, NOT MERELY EXIST. A line like
+   `setDefaultFullDetail(true)` or `throw new UnsupportedOperationException();`
+   appears in dozens of files and proves nothing. Quote the Javadoc sentence
+   that STATES the fact -- not a line of code that happens to do something.
+
+7. NEVER ask about a name that exists everywhere -- remove(), super(),
+   toString(), equals(), iterator(), hashCode(). Ask about something unique to
+   this file.
 
 The "quote" field must be copied character-for-character from the excerpt and
 must actually prove the answer.
@@ -114,10 +124,55 @@ def cmd_draft(args):
         all_chunks.extend(recursive(doc_id, text, size=900, overlap=0))
     print(f"Split into {len(all_chunks)} chunks")
 
-    # Only chunks with real substance, and spread across documents so you do not
-    # end up with 40 questions from your one longest file.
-    usable = [c for c in all_chunks if len(c.text) > 300]
-    random.Random(42).shuffle(usable)
+    # Only sample chunks that actually contain documented facts.
+    #
+    # Without this the drafter samples raw code bodies -- constructor calls,
+    # `throw new UnsupportedOperationException();` -- and manufactures questions
+    # from method names, citing a line that exists but proves nothing. Those
+    # quotes pass the hallucination check (the text IS in the chunk) while being
+    # useless as evidence, so only human review catches them. Cheaper to never
+    # generate them.
+    #
+    # Requiring a Javadoc block plus a minimum amount of prose filters the
+    # undocumented code out. Report this: it means the eval set covers the
+    # DOCUMENTED surface of the corpus, not all of it.
+    def has_documented_content(text: str) -> bool:
+        if "/**" not in text:
+            return False
+        # prose inside the Javadoc, not just @param/@return tags or code
+        doc_lines = [ln.strip().lstrip("*").strip()
+                     for ln in text.splitlines() if ln.strip().startswith("*")]
+        prose = [ln for ln in doc_lines
+                 if len(ln.split()) >= 6 and not ln.startswith("@")]
+        return len(prose) >= 3
+
+    usable = [c for c in all_chunks
+              if len(c.text) > 300 and has_documented_content(c.text)]
+    print(f"{len(usable)} chunks carry enough documentation to draft from "
+          f"({len(all_chunks) - len(usable)} skipped as undocumented)")
+
+    # Exclude chunks that already produced an approved question.
+    #
+    # An earlier version seeded the shuffle with a constant (random.Random(42)),
+    # which meant every batch sampled the SAME chunks in the SAME order -- so a
+    # second draft re-generated the first batch's questions, including ones the
+    # human had already rejected. Deterministic sampling is right for an
+    # experiment and wrong for incremental data collection.
+    used_quotes = set()
+    if os.path.exists(QUESTIONS):
+        with open(QUESTIONS, encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    q = json.loads(line)
+                    used_quotes.add(" ".join(q["quote"].split())[:60])
+
+    fresh = [c for c in usable
+             if not any(u in " ".join(c.text.split()) for u in used_quotes)]
+    print(f"{len(fresh)} unused ({len(usable) - len(fresh)} already covered by "
+          f"approved questions)")
+
+    random.shuffle(fresh)   # unseeded: each batch draws different chunks
+    usable = fresh
 
     by_doc, picked = {}, []
     cap = max(2, args.n // max(1, len(docs)) + 2)
