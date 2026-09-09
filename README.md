@@ -12,7 +12,7 @@ Runs entirely on a laptop; nothing leaves the machine.
 
 ## The claim
 
-Everyone builds RAG. Almost nobody measures it. This repo produces an ablation
+Everyone builds RAG. Almost noone measures it. This repo produces an ablation
 table where each row is a controlled experiment against a human-verified answer
 key, reported with bootstrap confidence intervals.
 
