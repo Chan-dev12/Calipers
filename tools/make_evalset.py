@@ -39,6 +39,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src.chunkers import recursive          # noqa: E402
 from src import llm                          # noqa: E402
+# resolve_gold lives in ONE place. This file used to carry its own near-copy,
+# already drifted from the original, with a docstring claiming the eval runner
+# called it -- it did not; the runner imports src.evalset. Two implementations
+# of the function that defines ground truth is exactly the kind of quiet
+# divergence that produces confident wrong numbers.
+from src.evalset import resolve_gold          # noqa: E402,F401
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 CORPUS_DIR = os.path.join(ROOT, "corpus")
@@ -192,7 +198,7 @@ def cmd_draft(args):
     import datetime
     batch = datetime.datetime.now().strftime("b%m%d%H%M")
 
-    written, rejected = 0, 0
+    written, rejected, non_unique = 0, 0, 0
     with open(CANDIDATES, "w", encoding="utf-8") as out:
         for i, c in enumerate(picked, 1):
             print(f"  [{i}/{len(picked)}] {c.doc_id}", flush=True)
@@ -202,6 +208,23 @@ def cmd_draft(args):
                 continue
             # auto-reject hallucinated quotes before a human ever sees them
             if r["quote"].strip()[:60] not in c.text:
+                rejected += 1
+                continue
+
+            # auto-reject evidence that is not unique inside its own file.
+            #
+            # This is where the project's worst defect was born. resolve_gold()
+            # maps a quote onto EVERY chunk containing it, so a boilerplate
+            # Javadoc sentence -- one repeats 193 times in SystemProperties.java
+            # -- produces 115 gold chunks and caps recall@5 at 0.043. Four such
+            # questions were enough to invert BM25's measured result against the
+            # baseline. The quote is verbatim and the question can name an exact
+            # method, so neither the hallucination check above nor any check on
+            # the question's wording can see it. Only counting in the source can.
+            probe = " ".join(r["quote"].split())[:40]
+            occurrences = " ".join(docs[c.doc_id].split()).count(probe)
+            if occurrences > 3:
+                non_unique += 1
                 rejected += 1
                 continue
             out.write(json.dumps({
@@ -216,7 +239,9 @@ def cmd_draft(args):
             written += 1
 
     print(f"\n{written} candidates -> {CANDIDATES}")
-    print(f"{rejected} auto-rejected (bad JSON or quote not found in source)")
+    print(f"{rejected} auto-rejected (bad JSON, or quote absent from source)")
+    print(f"  of which {non_unique} cited evidence repeating >3x in its own "
+          f"file -- the defect that silently caps recall")
     print("Next:  python tools/make_evalset.py review")
 
 
@@ -258,36 +283,6 @@ def cmd_review(args):
                 f.write(json.dumps(q, ensure_ascii=False) + "\n")
 
     print(f"\n{len(approved)} verified questions in {QUESTIONS}")
-
-
-def resolve_gold(question: dict, chunks: list, min_overlap: int = 40) -> set:
-    """Map an evidence quote to chunk_ids under WHATEVER chunking is active.
-
-    Called by the eval runner, not by you directly. This is the function that
-    keeps your answer key valid across chunking experiments.
-    """
-    quote = " ".join(question["quote"].split())
-    probe = quote[:min_overlap]
-    gold = set()
-    for c in chunks:
-        if c.doc_id != question["doc_id"]:
-            continue
-        norm = " ".join(c.text.split())
-        if probe and probe in norm:
-            gold.add(c.chunk_id)
-    if not gold:  # quote straddles a chunk boundary -- fall back to word overlap
-        qwords = set(quote.lower().split())
-        best, best_score = None, 0.0
-        for c in chunks:
-            if c.doc_id != question["doc_id"]:
-                continue
-            cwords = set(c.text.lower().split())
-            score = len(qwords & cwords) / max(1, len(qwords))
-            if score > best_score:
-                best, best_score = c.chunk_id, score
-        if best and best_score > 0.6:
-            gold.add(best)
-    return gold
 
 
 def cmd_stats(args):

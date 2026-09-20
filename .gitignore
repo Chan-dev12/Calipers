@@ -1,8 +1,18 @@
 .venv/
 __pycache__/
 *.pyc
-.cache/           # embedding + generation cache (regenerable, can get large)
-index/            # built vector stores
+
+# embedding + generation cache (regenerable, can get large)
+# NOTE: comments must be on their own line. Git does not strip a trailing
+# comment from a pattern line -- it treats it as part of the pattern, which
+# is how .cache/ and index/ silently went un-ignored here for several commits.
+.cache/
+
+# built vector stores
+index/
+
+# raw per-run output; ABLATION.md is the tracked deliverable
 results/*.json
+
 corpus/*
 !corpus/.gitkeep

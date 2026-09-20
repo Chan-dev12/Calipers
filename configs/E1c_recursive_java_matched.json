@@ -1,0 +1,10 @@
+{
+  "name": "E1c_recursive_java_matched",
+  "chunker": "recursive",
+  "chunk_size": 1120,
+  "overlap": 150,
+  "separators": "java",
+  "retriever": "dense",
+  "top_k": 10,
+  "_why": "Control for E1b's confound. E0/E1/E1b all set chunk_size 1000 but REALISE means of 987/860/781, and NDCG falls in that same order -- so 'Java separators hurt' was not separable from 'smaller chunks hurt'. chunk_size 1120 makes the Java separator set realise a mean of 856.6 chars over 2640 chunks, against prose E1's 860.3 over 2647. Same realised length, same chunk count, only the separator list differs. E1 vs E1c is therefore the clean test E1b could not be."
+}

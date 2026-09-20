@@ -1,8 +1,9 @@
 {
   "name": "E3_bm25",
-  "chunker": "recursive",
+  "retriever": "bm25",
+  "top_k": 10,
+  "chunker": "fixed",
   "chunk_size": 1000,
   "overlap": 150,
-  "retriever": "bm25",
-  "top_k": 10
+  "_chunker_from": "E0_baseline -- winner of the chunker ablation on ndcg@10. Set by tools/pick_chunker.py; do not edit by hand."
 }

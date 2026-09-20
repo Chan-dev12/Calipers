@@ -1,0 +1,22 @@
+{
+  "E4_hybrid": {
+    "b08230030_003": {
+      "correctness": 2,
+      "faithfulness": 2
+    },
+    "q022": {
+      "correctness": 2,
+      "faithfulness": 0
+    },
+    "b08222357_013": {
+      "correctness": 2,
+      "faithfulness": 2
+    },
+    "b08230030_004": {
+      "correctness": 0
+    },
+    "q001": {
+      "correctness": 0
+    }
+  }
+}
