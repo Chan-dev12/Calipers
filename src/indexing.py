@@ -43,6 +43,11 @@ def chunk_corpus(docs: Dict[str, str], config: Dict) -> List[Chunk]:
             chunks.extend(fn(doc_id, text,
                              embed_fn=lambda xs: llm.embed(xs),
                              percentile=config.get("percentile", 90.0)))
+        elif kind == "recursive":
+            chunks.extend(fn(doc_id, text,
+                             size=config.get("chunk_size", 512),
+                             overlap=config.get("overlap", 64),
+                             separators=config.get("separators", "prose")))
         else:
             chunks.extend(fn(doc_id, text,
                              size=config.get("chunk_size", 512),

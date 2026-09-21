@@ -24,6 +24,24 @@ WHAT IT LOOKS FOR
     the same Javadoc sentence appears in a dozen chunks. Only one is recorded
     as gold, so a retriever is punished for returning an equally correct chunk.
 
+  NON-UNIQUE EVIDENCE (critical)
+    The evidence quote is not unique inside its own source file. This is the
+    defect that silently destroys a retrieval score, so it gets its own check.
+
+    resolve_gold() maps a quote onto every chunk that contains it. If the quote
+    is boilerplate -- `SystemProperties.java` repeats "Returns {@code null} if
+    the property cannot be read..." 193 times -- then EVERY one of those chunks
+    becomes gold. With 115 gold chunks, recall@5 is capped at 5/115 = 0.043 and
+    the retriever is punished no matter what it returns.
+
+    It is not a question-wording problem, so the specificity check above cannot
+    see it: the question can name an exact method and still cite evidence that
+    appears verbatim in eighty other places. The defect lives in the QUOTE, and
+    the only way to see it is to go back to the source document and count.
+
+    Four such questions dragged BM25's measured NDCG@10 from +0.069 to -0.010
+    against the baseline -- i.e. they inverted the conclusion of the ablation.
+
   MARKUP (warning)
     Raw Javadoc syntax ({@link}, {@code}, <p>) left in the question. Nobody
     types that. The retriever ends up matching on formatting artifacts.
@@ -44,8 +62,24 @@ import re
 import sys
 from collections import Counter
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from src.indexing import load_corpus                            # noqa: E402
+
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 QUESTIONS = os.path.join(ROOT, "evalset", "questions.jsonl")
+CORPUS = os.path.join(ROOT, "corpus")
+
+# How many times a quote may appear in its own source file before the question
+# is unusable. Calibrated against this corpus: occurrences map almost 1:1 onto
+# resolved gold chunks (1 -> 1, 2 -> 2-3, 7 -> 8, 193 -> 115), so anything
+# above 3 means the answer key points at a crowd rather than a passage.
+MAX_QUOTE_OCCURRENCES = 3
+
+# resolve_gold() matches on the first 40 characters of the normalised quote.
+# Use the same probe here, or the audit would measure something the scorer does
+# not actually do.
+PROBE_CHARS = 40
 
 MARKUP = re.compile(r"\{@\w+|</?\w+>|@return|@param|@throws")
 
@@ -80,8 +114,24 @@ def overlap(a: str, b: str) -> float:
     return len(aw & bw) / max(1, len(aw))
 
 
-def audit(questions):
+def quote_occurrences(question, docs) -> int:
+    """How many times this question's evidence probe appears in its source doc.
+
+    Mirrors resolve_gold(): same normalisation, same 40-char probe. Counting in
+    the DOCUMENT rather than in chunks keeps the check chunking-independent --
+    a question is either answerable or it is not, and that should not depend on
+    which experiment happens to be running.
+    """
+    doc = docs.get(question["doc_id"])
+    if doc is None:
+        return -1                      # unknown doc; reported separately
+    probe = norm(question["quote"])[:PROBE_CHARS]
+    return norm(doc).count(probe) if probe else 0
+
+
+def audit(questions, docs=None):
     quote_counts = Counter(norm(q["quote"])[:80] for q in questions)
+    docs = docs if docs is not None else {}
     findings = []
 
     for q in questions:
@@ -116,6 +166,24 @@ def audit(questions):
             issues.append(("CRITICAL", "overloaded method without parameter type -- "
                                        "several chunks would be equally correct"))
 
+        # non-unique evidence: the quote is boilerplate within its own file
+        if docs:
+            occ = quote_occurrences(q, docs)
+            if occ == -1:
+                issues.append(("CRITICAL", f"source document {q['doc_id']!r} "
+                                           f"not found in corpus/"))
+            elif occ == 0:
+                issues.append(("CRITICAL", "evidence quote does not appear in "
+                                           "its source document"))
+            elif occ > MAX_QUOTE_OCCURRENCES:
+                issues.append(("CRITICAL", f"evidence appears {occ}x in "
+                                           f"{q['doc_id']} -- every copy becomes "
+                                           f"gold, so recall is capped near "
+                                           f"{5.0 / occ:.3f} at k=5"))
+            elif occ > 1:
+                issues.append(("WARN", f"evidence appears {occ}x in "
+                                       f"{q['doc_id']}"))
+
         # vague framing: refers to "the method"/"this file" instead of naming it
         if re.search(r"\bthe (method|function|class|file|object)\b|\bthis (file|class)\b",
                      ques, re.I):
@@ -148,7 +216,11 @@ def main():
     with open(QUESTIONS, encoding="utf-8") as f:
         questions = [json.loads(l) for l in f if l.strip()]
 
-    findings = audit(questions)
+    docs = load_corpus(CORPUS)
+    if not docs:
+        print(f"WARNING: no documents in {CORPUS}/ -- skipping the "
+              f"evidence-uniqueness check, which is the one that matters most.")
+    findings = audit(questions, docs)
     flagged = {q["qid"] for q, iss in findings}
     critical = {q["qid"] for q, iss in findings
                 if any(lvl == "CRITICAL" for lvl, _ in iss)}
@@ -170,7 +242,15 @@ def main():
         print("  python tools/make_evalset.py draft --n 40")
 
     if args.prune and critical:
+        # Never overwrite an existing backup. The first version wrote a fixed
+        # `.prepruned.jsonl`, so a SECOND prune silently destroyed the record of
+        # the first -- losing the original drafted set, and with it the rejection
+        # rate this project reports as a result. Find a free slot instead.
         backup = QUESTIONS.replace(".jsonl", ".prepruned.jsonl")
+        n = 2
+        while os.path.exists(backup):
+            backup = QUESTIONS.replace(".jsonl", f".prepruned.{n}.jsonl")
+            n += 1
         os.replace(QUESTIONS, backup)
         kept = [q for q in questions if q["qid"] not in critical]
         with open(QUESTIONS, "w", encoding="utf-8") as f:

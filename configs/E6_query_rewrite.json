@@ -1,8 +1,5 @@
 {
   "name": "E6_query_rewrite",
-  "chunker": "recursive",
-  "chunk_size": 1000,
-  "overlap": 150,
   "retriever": "hybrid",
   "rrf_k": 60,
   "rerank": true,
@@ -10,5 +7,9 @@
   "query_rewrite": "expand",
   "rewrite_n": 2,
   "top_k": 10,
-  "rerank_batch": 6
+  "rerank_batch": 6,
+  "chunker": "fixed",
+  "chunk_size": 1000,
+  "overlap": 150,
+  "_chunker_from": "E0_baseline -- winner of the chunker ablation on ndcg@10. Set by tools/pick_chunker.py; do not edit by hand."
 }

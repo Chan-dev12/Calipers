@@ -24,6 +24,8 @@ from src.evalset import load_questions, resolve_all               # noqa: E402
 from src.indexing import build_store, chunk_corpus, corpus_stats, load_corpus  # noqa: E402
 from src.metrics import evaluate_run, bootstrap_ci, ndcg_at_k     # noqa: E402
 
+import hashlib                                                     # noqa: E402
+
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 CORPUS = os.path.join(ROOT, "corpus")
 EVALSET = os.path.join(ROOT, "evalset", "questions.jsonl")
@@ -33,9 +35,28 @@ RESULTS = os.path.join(ROOT, "results")
 _store_cache = {}
 
 
+def evalset_fingerprint(questions: list) -> str:
+    """Short hash of the answer key a result was scored against.
+
+    Results accumulate in results/ across weeks while the eval set keeps being
+    pruned. Without a fingerprint, report.py will happily put a row scored on 36
+    questions next to a row scored on 28 and draw a delta between them -- which
+    is how a pruning fix quietly turns into a fabricated comparison. Stamping it
+    here lets the report refuse to do that.
+    """
+    blob = "|".join(f"{q['qid']}:{q['doc_id']}:{' '.join(q['quote'].split())}"
+                    for q in sorted(questions, key=lambda x: x["qid"]))
+    return hashlib.md5(blob.encode("utf-8")).hexdigest()[:10]
+
+
 def _chunk_key(cfg: dict) -> tuple:
+    # separators MUST be part of the key. Without it E1 and E1b -- same
+    # chunker, same size, different separator list -- would share one cached
+    # store, and the "experiment" would compare a config against itself while
+    # reporting a plausible-looking number.
     return (cfg.get("chunker", "recursive"), cfg.get("chunk_size", 512),
-            cfg.get("overlap", 64), cfg.get("percentile", 90.0))
+            cfg.get("overlap", 64), cfg.get("percentile", 90.0),
+            cfg.get("separators", "prose"))
 
 
 def get_store(cfg: dict, docs: dict):
@@ -43,8 +64,9 @@ def get_store(cfg: dict, docs: dict):
     if key not in _store_cache:
         print(f"  chunking [{key[0]}]...")
         chunks = chunk_corpus(docs, cfg)
-        print(f"  {corpus_stats(docs, chunks)}")
-        _store_cache[key] = (build_store(chunks), chunks)
+        stats = corpus_stats(docs, chunks)
+        print(f"  {stats}")
+        _store_cache[key] = (build_store(chunks), chunks, stats)
     return _store_cache[key]
 
 
@@ -53,7 +75,7 @@ def run_one(cfg: dict, docs: dict, questions: list) -> dict:
     print(f"\n=== {name} ===")
     t0 = time.time()
 
-    store, chunks = get_store(cfg, docs)
+    store, chunks, chunk_stats = get_store(cfg, docs)
     resolved, unresolved = resolve_all(questions, chunks)
     if unresolved:
         # Do not hide this. If a chunker cannot host the evidence for some
@@ -83,10 +105,17 @@ def run_one(cfg: dict, docs: dict, questions: list) -> dict:
     result = {
         "name": name,
         "config": cfg,
+        "evalset_fingerprint": evalset_fingerprint(questions),
+        "evalset_size": len(questions),
         "n_questions": len(resolved),
         "n_unresolved": len(unresolved),
         "unresolved_qids": unresolved,
         "n_chunks": len(chunks),
+        # Reported because chunk_size is held constant in the CONFIG but not in
+        # effect: fixed/recursive/java produce means of ~987/860/781 chars at a
+        # nominal 1000. Score tracks mean size, so a chunker comparison that
+        # hides this cannot separate "better boundaries" from "more context".
+        "chunk_stats": chunk_stats,
         "metrics": {m: round(v, 4) for m, v in metrics.items()},
         "ndcg@10_ci95": [round(lo, 4), round(hi, 4)],
         "elapsed_sec": round(elapsed, 1),
@@ -111,6 +140,11 @@ def main():
 
     if not llm.health():
         sys.exit("Ollama unreachable. Start it, then retry.")
+    try:
+        # Fail now, not after the corpus has been indexed.
+        llm.require_models(llm.EMBED_MODEL, llm.GEN_MODEL)
+    except RuntimeError as e:
+        sys.exit(str(e))
 
     docs = load_corpus(CORPUS)
     if not docs:

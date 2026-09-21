@@ -1,9 +1,10 @@
 {
   "name": "E4_hybrid",
-  "chunker": "recursive",
-  "chunk_size": 1000,
-  "overlap": 150,
   "retriever": "hybrid",
   "rrf_k": 60,
-  "top_k": 10
+  "top_k": 10,
+  "chunker": "fixed",
+  "chunk_size": 1000,
+  "overlap": 150,
+  "_chunker_from": "E0_baseline -- winner of the chunker ablation on ndcg@10. Set by tools/pick_chunker.py; do not edit by hand."
 }

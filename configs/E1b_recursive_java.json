@@ -1,0 +1,9 @@
+{
+  "name": "E1b_recursive_java",
+  "chunker": "recursive",
+  "chunk_size": 1000,
+  "overlap": 150,
+  "separators": "java",
+  "retriever": "dense",
+  "top_k": 10
+}

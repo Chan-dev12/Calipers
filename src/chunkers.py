@@ -50,10 +50,35 @@ def fixed_size(doc_id: str, text: str, size: int = 512, overlap: int = 64) -> Li
 
 
 # ------------------------------------------------------------ 2. recursive
+# Prose-tuned separators: markdown headings, paragraphs, then sentences.
 _SEPARATORS = ["\n## ", "\n### ", "\n\n", "\n", ". ", " "]
 
+# Java-tuned separators: the structural boundaries a Java file actually has.
+#
+# Why this exists. The prose list above leads with markdown headings, which
+# NEVER occur in Java source. On a code corpus the recursive chunker therefore
+# skips straight to splitting on blank lines -- near-arbitrary cuts -- while
+# still paying the overlap cost, which dilutes each embedding. The ALGORITHM
+# was not the problem; its separator list was tuned for a different document
+# format. E1 vs E1b measures the size of that effect.
+_SEPARATORS_JAVA = [
+    "\n    }\n",        # end of a method body
+    "\n\n    /**",      # start of a Javadoc block
+    "\n    public ",    # declarations
+    "\n    private ",
+    "\n    protected ",
+    "\n    static ",
+    "\n\n",
+    "\n",
+    ". ",
+    " ",
+]
 
-def recursive(doc_id: str, text: str, size: int = 512, overlap: int = 64) -> List[Chunk]:
+SEPARATOR_SETS = {"prose": _SEPARATORS, "java": _SEPARATORS_JAVA}
+
+
+def recursive(doc_id: str, text: str, size: int = 512, overlap: int = 64,
+              separators: str = "prose") -> List[Chunk]:
     """Split on the most semantic separator that fits, falling back down the list.
     This is what LangChain's RecursiveCharacterTextSplitter does -- written out so
     you can explain it."""
@@ -79,7 +104,8 @@ def recursive(doc_id: str, text: str, size: int = 512, overlap: int = 64) -> Lis
             out.extend(_split(m, rest) if len(m) > size else [m])
         return out
 
-    pieces = [p for p in _split(text, _SEPARATORS) if p.strip()]
+    seps = SEPARATOR_SETS.get(separators, _SEPARATORS)
+    pieces = [p for p in _split(text, seps) if p.strip()]
 
     # re-attach overlap and recover char offsets
     out, cursor = [], 0
@@ -95,6 +121,23 @@ def recursive(doc_id: str, text: str, size: int = 512, overlap: int = 64) -> Lis
 
 
 # ------------------------------------------------------------- 3. semantic
+# Sentence splitter, and a caveat that matters on a code corpus.
+#
+# This is prose-tuned -- it cuts on terminal punctuation or a blank line -- and
+# Java source frequently offers neither for long stretches. A method body with
+# no blank lines and no full stops comes back as ONE "sentence" of 3,258
+# characters. Measured on this corpus: 2.9% of sentences exceed 600 chars, and
+# because transformer attention is quadratic in sequence length those 2.9%
+# account for 58.6% of the total embedding cost -- which is most of why E2 is
+# the slowest row in the table. They are also poor semantic units: a
+# 3,000-character blob embeds to a vector that means very little, so the
+# breakpoint detection below has less signal to work with.
+#
+# Same class of mismatch as the prose/java separator lists above -- the
+# ALGORITHM is fine, its tokenisation assumptions came from another document
+# format. Recorded rather than silently patched, because E2's numbers were
+# produced with this behaviour and changing it would invalidate them.
+
 _SENT_RE = re.compile(r"(?<=[.!?])\s+|\n{2,}")
 
 

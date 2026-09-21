@@ -1,6 +1,8 @@
 {
   "embed_model": "nomic-embed-text",
-  "gen_model": "gemma4:e2b",
-  "judge_model": "gemma4:e4b",
-  "_note": "MX550 2GB VRAM: embeddings fit on GPU, generation runs on CPU."
+  "gen_model": "gemma3:1b",
+  "judge_model": "gemma4:e2b",
+  "_note": "Read by src/llm.py. Environment variables override these: EMBED_MODEL, GEN_MODEL, JUDGE_MODEL.",
+  "_hardware": "MX550 2GB VRAM: embeddings fit on GPU, generation runs on CPU.",
+  "_dev_vs_final": "gen_model is gemma3:1b for the fast iteration loop. For final numbers set GEN_MODEL=gemma4:e2b; the judge is gemma4:e2b either way, so it is never weaker than the generator."
 }
